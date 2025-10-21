@@ -10,7 +10,7 @@ combinetreat <- function(df, varNames){
   df <- df %>% mutate(treat = paste(.data[[varNames[1]]],.data[[varNames[2]]],sep="+"))
   if(length(varNames) > 2){
     for(i in 3:length(varNames)){
-      df <- df %>% mutate(treat = paste(treat,.data[[varNames[i]]]))
+      df <- df %>% mutate(treat = paste(treat,"+",.data[[varNames[i]]]))
     }
   }
   return(df)
@@ -299,8 +299,8 @@ shinyApp(
                             varSelectInput("x_var", "X_Axis Variable", if(exists("gated.edu.f")){dplyr::select(gated.edu.f, where(is.factor))} else{dplyr::select(hci.edu.c, where(is.factor))}, selected = "treat"),
                             varSelectInput("y_var", "Y_Axis Variable", if(exists("gated.edu.f")){gated.edu.f} else{hci.edu.c}, selected = "cor_mean_educor"),
                                            radioButtons("faceting", "Facet Type", c("None", "Wrap", "Grid")),
-                                           selectInput("colFacet", "Column/Wrap Facet Var:", c("None", "treat", varNames, "phase", "phase2", "phase5")),
-                                           selectInput("colRow", "Row Facet Var:", c("None", "treat", varNames, "phase", "phase2", "phase5"))
+                                           selectInput("colFacet", "Column/Wrap Facet Var:", if(exists("gated.edu.f")){c(colnames(dplyr::select(gated.edu.f, where(is.factor))), "None")} else{c(colnames(dplyr::select(hci.edu.c, where(is.factor))), "None")}),
+                                           selectInput("colRow", "Row Facet Var:", if(exists("gated.edu.f")){c(colnames(dplyr::select(gated.edu.f, where(is.factor))), "None")} else{c(colnames(dplyr::select(hci.edu.c, where(is.factor))), "None")})
                            ),
                            
                            column(3,
@@ -637,7 +637,7 @@ shinyApp(
       output$graph <- downloadHandler(filename = function(){
         input$graph_file}, 
         content =  function(file) {
-          ggsave(file, gg(), device = "pdf",
+          ggsave(file, bar(), device = "pdf",
                  width = input$width,
                  height = input$height,
                  units = c("px"),
