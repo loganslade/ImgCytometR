@@ -309,7 +309,8 @@ shinyApp(
                                   numericInput("res", "Scaling (click Make Graph after change)", value = 64),
                                   numericInput("vio_alpha", "Violin Transparency", value = 0.2),
                                   numericInput("dot_size", "Point Size", value = 0.1),
-                                  numericInput("dot_alpha", "Dot Transparency", value = 0.1)
+                                  numericInput("dot_alpha", "Dot Transparency", value = 0.1),
+                                  numericInput("points_per_group", "Points per group (blank = all)", value = NULL, min = 1, step = 1)
 
                            ),
                            column(2,
@@ -409,14 +410,28 @@ shinyApp(
         scale_fill_manual(values = fallback)
       })
 
-      gg <- reactive(  
+      plot_data <- reactive({
         get(input$dataset) %>% 
           {if(input$filtering == "Yes") filter(.,treat %in% c(input$levels)) else .}  %>%
           {if(input$phase_filtering == "Yes") filter(.,phase5 %in% c(input$phases)) else .}  %>% 
-          {if(input$telo_filtering == "Yes") filter(.,telophase < late_telo) else .}  %>% 
+          {if(input$telo_filtering == "Yes") filter(.,telophase < late_telo) else .}
+      })
+
+      point_data <- reactive({
+        point_limit <- suppressWarnings(as.integer(input$points_per_group))
+
+        plot_data() %>%
+          {if(is.na(point_limit) || point_limit < 1) . else
+            group_by(., !!input$x_var) %>%
+              group_modify(~ if(nrow(.x) <= point_limit) .x else dplyr::slice_sample(.x, n = point_limit)) %>%
+              ungroup()}
+      })
+
+      gg <- reactive(  
+        plot_data() %>%
           ggplot(aes(x=!!input$x_var, y=!!input$y_var, fill = !!input$x_var))+
           geom_violin(linewidth = 1, scale = "width", alpha = input$vio_alpha, draw_quantiles = c(0.5))+
-          geom_quasirandom(size = input$dot_size, alpha= input$dot_alpha)+
+          geom_quasirandom(data = point_data(), size = input$dot_size, alpha= input$dot_alpha)+
           {if(is.null(fill_scale())) scale_fill_manual(values = rep(input$fill, length(group_levels())), breaks = group_levels()) else fill_scale()}+
           scale_y_continuous(transform = if(input$tran_y == "pseudo_log"){scales::pseudo_log_trans(sigma = input$sigma_y)}
                              else{input$tran_y},
