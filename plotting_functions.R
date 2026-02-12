@@ -336,6 +336,7 @@ shinyApp(
                                   numericInput("aspect", "Aspect Ratio (No Number for free axis)", value = 2),
                                   numericInput("text_globe", "Global text size", value = 28),
                                   numericInput("text_axis", "Axis text size", value = 24),
+                                  radioButtons("show_legend", "Show color legend?", c("Yes", "No"), selected = "Yes"),
                                   numericInput("angle", "X-text Angle", value = 45),
                                   numericInput("hjust", "X-text alignment", value = 1)
                            )),
@@ -433,7 +434,8 @@ shinyApp(
                 plot.title = element_text(hjust = 0.5),
                 axis.line = element_blank(),
                 strip.background = element_blank(),
-                panel.background = element_rect(fill = "white", colour = "black", linewidth = 1))+
+                panel.background = element_rect(fill = "white", colour = "black", linewidth = 1),
+                legend.position = if(input$show_legend == "Yes") "right" else "none")+
           {if(is.na(input$aspect)) theme(aspect.ratio=NULL) else theme(aspect.ratio = input$aspect)}+
           {if(input$faceting == "Grid")
             facet_grid(cols = eval(if(input$colFacet == "None") NULL else vars(get(input$colFacet))),
