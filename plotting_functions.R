@@ -417,12 +417,33 @@ shinyApp(
           {if(input$telo_filtering == "Yes") filter(.,telophase < late_telo) else .}
       })
 
+      sampling_group_vars <- reactive({
+        grouping_vars <- c(as.character(input$x_var))
+
+        if(input$faceting == "Wrap" && input$colFacet != "None") {
+          grouping_vars <- c(grouping_vars, input$colFacet)
+        }
+
+        if(input$faceting == "Grid") {
+          if(input$colFacet != "None") {
+            grouping_vars <- c(grouping_vars, input$colFacet)
+          }
+
+          if(input$colRow != "None") {
+            grouping_vars <- c(grouping_vars, input$colRow)
+          }
+        }
+
+        unique(grouping_vars)
+      })
+
       point_data <- reactive({
         point_limit <- suppressWarnings(as.integer(input$points_per_group))
+        grouping_syms <- rlang::syms(sampling_group_vars())
 
         plot_data() %>%
           {if(is.na(point_limit) || point_limit < 1) . else
-            group_by(., !!input$x_var) %>%
+            group_by(., !!!grouping_syms) %>%
               group_modify(~ if(nrow(.x) <= point_limit) .x else dplyr::slice_sample(.x, n = point_limit)) %>%
               ungroup()}
       })
