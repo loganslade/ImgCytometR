@@ -309,14 +309,16 @@ shinyApp(
                                   numericInput("res", "Scaling (click Make Graph after change)", value = 64),
                                   numericInput("vio_alpha", "Violin Transparency", value = 0.2),
                                   numericInput("dot_size", "Point Size", value = 0.1),
-                                  numericInput("dot_alpha", "Dot Transparency", value = 0.1)
+                                  numericInput("dot_alpha", "Dot Transparency", value = 0.1),
+                                  numericInput("points_per_group", "Points per group (blank = all)", value = NULL, min = 1, step = 1)
 
                            ),
                            column(2,
                                   radioButtons("filtering", "Filter groups?", c("Yes", "No"), selected = "No"),
                                   checkboxGroupInput("levels", "Groups to include:", c(levels(as.factor(hci.edu.c$treat)))),
                                   radioButtons("phase_filtering", "Filter phases?", c("Yes", "No"), selected = "No"),
-                                  checkboxGroupInput("phases", "Phases to include:", if(exists("gated.edu.f")){c(levels(as.factor(gated.edu.f$phase5)))} else{c("No phases")})
+                                  checkboxGroupInput("phases", "Phases to include:", if(exists("gated.edu.f")){c(levels(as.factor(gated.edu.f$phase5)))} else{c("No phases")}),
+                                  radioButtons("telo_filtering", "Late Telohase filter?", c("Yes", "No"), selected = "No")
                            ),
                            column(3,
                                   selectInput("tran_y", "Y-Axis Transformation", c("Linear" = "identity",
@@ -327,14 +329,15 @@ shinyApp(
                                   textInput("title", "Title"),
                                   textInput("x_lab", "X-label"),
                                   textInput("y_lab", "Y-label"),
-                                  textInput("fill", "Select Color", value = "deepskyblue4"),
-                                  radioButtons("telo_filtering", "Late Telohase filter?", c("Yes", "No"), selected = "No")),
+                                  selectInput("fill", "Default Violin Color", choices = colors(), selected = "deepskyblue4"),
+                                  uiOutput("group_color_inputs")),
                            column(2,
                                   numericInput("lower_y", "Lower Y Limit", value = NULL),
                                   numericInput("upper_y", "Upper Y Limit", value = NULL),
                                   numericInput("aspect", "Aspect Ratio (No Number for free axis)", value = 2),
                                   numericInput("text_globe", "Global text size", value = 28),
                                   numericInput("text_axis", "Axis text size", value = 24),
+                                  radioButtons("show_legend", "Show color legend?", c("Yes", "No"), selected = "Yes"),
                                   numericInput("angle", "X-text Angle", value = 45),
                                   numericInput("hjust", "X-text alignment", value = 1)
                            )),
@@ -344,7 +347,7 @@ shinyApp(
                                     column(3,
                                            downloadButton("graph", "Save Graph (Use .pdf extensions):"))),
                            fluidRow(column(12, 
-                           p("Color names can be found here: https://sape.inf.usi.ch/sites/default/files/ggplot2-colour-names.png")))
+                           p("Choose colors from the drop-downs for default and per-group fills.")))
                            
       )
       )
@@ -352,21 +355,92 @@ shinyApp(
     ,
     
     server <- function(input, output, session) {
-      gg <- reactive(  
+      group_levels <- reactive({
+        data <- get(input$dataset)
+        x_var_name <- as.character(input$x_var)
+
+        if(!x_var_name %in% colnames(data)) {
+          return(character(0))
+        }
+
+        data %>%
+          dplyr::pull(!!input$x_var) %>%
+          as.character() %>%
+          unique() %>%
+          sort()
+      })
+
+      output$group_color_inputs <- renderUI({
+        groups <- group_levels()
+
+        if(length(groups) == 0) {
+          return(NULL)
+        }
+
+        tagList(
+          h5("Group Colors (optional)"),
+          lapply(groups, function(group_name) {
+            input_id <- paste0("group_color_", make.names(group_name))
+            selectInput(input_id, paste("Color for", group_name), choices = c("Use default color" = "", colors()), selected = "")
+          })
+        )
+      })
+
+      fill_scale <- reactive({
+        groups <- group_levels()
+
+        if(length(groups) == 0) {
+          return(NULL)
+        }
+
+        group_colors <- sapply(groups, function(group_name) {
+          input[[paste0("group_color_", make.names(group_name))]]
+        })
+
+        has_color <- !is.null(group_colors) & nzchar(group_colors)
+
+        if(!any(has_color)) {
+          return(NULL)
+        }
+
+        fallback <- rep(input$fill, length(groups))
+        fallback[has_color] <- group_colors[has_color]
+        names(fallback) <- groups
+
+        scale_fill_manual(values = fallback)
+      })
+
+      plot_data <- reactive({
         get(input$dataset) %>% 
           {if(input$filtering == "Yes") filter(.,treat %in% c(input$levels)) else .}  %>%
           {if(input$phase_filtering == "Yes") filter(.,phase5 %in% c(input$phases)) else .}  %>% 
-          {if(input$telo_filtering == "Yes") filter(.,telophase < late_telo) else .}  %>% 
-          ggplot(aes(x=!!input$x_var, y=!!input$y_var))+
-          geom_violin(linewidth = 1, scale = "width", fill = input$fill, alpha = input$vio_alpha, draw_quantiles = c(0.5))+
-          geom_quasirandom(size = input$dot_size, alpha= input$dot_alpha)+
+          {if(input$telo_filtering == "Yes") filter(.,telophase < late_telo) else .}
+      })
+
+      point_data <- reactive({
+        point_limit <- suppressWarnings(as.integer(input$points_per_group))
+
+        plot_data() %>%
+          {if(is.na(point_limit) || point_limit < 1) . else
+            group_by(., !!input$x_var) %>%
+              group_modify(~ if(nrow(.x) <= point_limit) .x else dplyr::slice_sample(.x, n = point_limit)) %>%
+              ungroup()}
+      })
+
+      gg <- reactive(  
+        plot_data() %>%
+          ggplot(aes(x=!!input$x_var, y=!!input$y_var, fill = !!input$x_var))+
+          geom_violin(linewidth = 1, scale = "width", alpha = input$vio_alpha, draw_quantiles = c(0.5))+
+          geom_quasirandom(data = point_data(), size = input$dot_size, alpha= input$dot_alpha)+
+          {if(is.null(fill_scale())) scale_fill_manual(values = rep(input$fill, length(group_levels())), breaks = group_levels()) else fill_scale()}+
           scale_y_continuous(transform = if(input$tran_y == "pseudo_log"){scales::pseudo_log_trans(sigma = input$sigma_y)}
                              else{input$tran_y},
                              limits = c(input$lower_y, 
                                         input$upper_y))+
           labs(title = if(input$telo_filtering == "Yes"){"Late Telophase"} else{input$title},
                x= input$x_lab,
-               y=input$y_lab)+
+               y=input$y_lab,
+               fill = as.character(input$x_var))+
           theme_classic()+
           theme(text = element_text(size=input$text_globe),
                 legend.title = element_text(size = input$text_leg),
@@ -375,7 +449,8 @@ shinyApp(
                 plot.title = element_text(hjust = 0.5),
                 axis.line = element_blank(),
                 strip.background = element_blank(),
-                panel.background = element_rect(fill = "white", colour = "black", linewidth = 1))+
+                panel.background = element_rect(fill = "white", colour = "black", linewidth = 1),
+                legend.position = if(input$show_legend == "Yes") "right" else "none")+
           {if(is.na(input$aspect)) theme(aspect.ratio=NULL) else theme(aspect.ratio = input$aspect)}+
           {if(input$faceting == "Grid")
             facet_grid(cols = eval(if(input$colFacet == "None") NULL else vars(get(input$colFacet))),
@@ -650,5 +725,4 @@ shinyApp(
     }
   )
 }
-
 
