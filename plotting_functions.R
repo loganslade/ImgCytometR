@@ -327,7 +327,8 @@ shinyApp(
                                   textInput("title", "Title"),
                                   textInput("x_lab", "X-label"),
                                   textInput("y_lab", "Y-label"),
-                                  textInput("fill", "Select Color", value = "deepskyblue4"),
+                                  textInput("fill", "Default Violin Color", value = "deepskyblue4"),
+                                  uiOutput("group_color_inputs"),
                                   radioButtons("telo_filtering", "Late Telohase filter?", c("Yes", "No"), selected = "No")),
                            column(2,
                                   numericInput("lower_y", "Lower Y Limit", value = NULL),
@@ -352,21 +353,78 @@ shinyApp(
     ,
     
     server <- function(input, output, session) {
+      group_levels <- reactive({
+        data <- get(input$dataset)
+        x_var_name <- as.character(input$x_var)
+
+        if(!x_var_name %in% colnames(data)) {
+          return(character(0))
+        }
+
+        data %>%
+          dplyr::pull(!!input$x_var) %>%
+          as.character() %>%
+          unique() %>%
+          sort()
+      })
+
+      output$group_color_inputs <- renderUI({
+        groups <- group_levels()
+
+        if(length(groups) == 0) {
+          return(NULL)
+        }
+
+        tagList(
+          h5("Group Colors (optional)"),
+          lapply(groups, function(group_name) {
+            input_id <- paste0("group_color_", make.names(group_name))
+            textInput(input_id, paste("Color for", group_name), value = "")
+          })
+        )
+      })
+
+      fill_scale <- reactive({
+        groups <- group_levels()
+
+        if(length(groups) == 0) {
+          return(NULL)
+        }
+
+        group_colors <- sapply(groups, function(group_name) {
+          input[[paste0("group_color_", make.names(group_name))]]
+        })
+
+        has_color <- !is.null(group_colors) & nzchar(group_colors)
+
+        if(!any(has_color)) {
+          return(NULL)
+        }
+
+        fallback <- rep(input$fill, length(groups))
+        fallback[has_color] <- group_colors[has_color]
+        names(fallback) <- groups
+
+        scale_fill_manual(values = fallback)
+      })
+
       gg <- reactive(  
         get(input$dataset) %>% 
           {if(input$filtering == "Yes") filter(.,treat %in% c(input$levels)) else .}  %>%
           {if(input$phase_filtering == "Yes") filter(.,phase5 %in% c(input$phases)) else .}  %>% 
           {if(input$telo_filtering == "Yes") filter(.,telophase < late_telo) else .}  %>% 
-          ggplot(aes(x=!!input$x_var, y=!!input$y_var))+
-          geom_violin(linewidth = 1, scale = "width", fill = input$fill, alpha = input$vio_alpha, draw_quantiles = c(0.5))+
+          ggplot(aes(x=!!input$x_var, y=!!input$y_var, fill = !!input$x_var))+
+          geom_violin(linewidth = 1, scale = "width", alpha = input$vio_alpha, draw_quantiles = c(0.5))+
           geom_quasirandom(size = input$dot_size, alpha= input$dot_alpha)+
+          {if(is.null(fill_scale())) scale_fill_manual(values = rep(input$fill, length(group_levels())), breaks = group_levels()) else fill_scale()}+
           scale_y_continuous(transform = if(input$tran_y == "pseudo_log"){scales::pseudo_log_trans(sigma = input$sigma_y)}
                              else{input$tran_y},
                              limits = c(input$lower_y, 
                                         input$upper_y))+
           labs(title = if(input$telo_filtering == "Yes"){"Late Telophase"} else{input$title},
                x= input$x_lab,
-               y=input$y_lab)+
+               y=input$y_lab,
+               fill = as.character(input$x_var))+
           theme_classic()+
           theme(text = element_text(size=input$text_globe),
                 legend.title = element_text(size = input$text_leg),
@@ -650,5 +708,4 @@ shinyApp(
     }
   )
 }
-
 
