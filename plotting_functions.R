@@ -327,7 +327,7 @@ shinyApp(
                                   textInput("title", "Title"),
                                   textInput("x_lab", "X-label"),
                                   textInput("y_lab", "Y-label"),
-                                  textInput("fill", "Default Violin Color", value = "deepskyblue4"),
+                                  selectInput("fill", "Default Violin Color", choices = colors(), selected = "deepskyblue4"),
                                   uiOutput("group_color_inputs"),
                                   radioButtons("telo_filtering", "Late Telohase filter?", c("Yes", "No"), selected = "No")),
                            column(2,
@@ -345,7 +345,7 @@ shinyApp(
                                     column(3,
                                            downloadButton("graph", "Save Graph (Use .pdf extensions):"))),
                            fluidRow(column(12, 
-                           p("Color names can be found here: https://sape.inf.usi.ch/sites/default/files/ggplot2-colour-names.png")))
+                           p("Choose colors from the drop-downs for default and per-group fills.")))
                            
       )
       )
@@ -379,7 +379,7 @@ shinyApp(
           h5("Group Colors (optional)"),
           lapply(groups, function(group_name) {
             input_id <- paste0("group_color_", make.names(group_name))
-            textInput(input_id, paste("Color for", group_name), value = "")
+            selectInput(input_id, paste("Color for", group_name), choices = c("Use default color" = "", colors()), selected = "")
           })
         )
       })
