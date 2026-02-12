@@ -316,7 +316,8 @@ shinyApp(
                                   radioButtons("filtering", "Filter groups?", c("Yes", "No"), selected = "No"),
                                   checkboxGroupInput("levels", "Groups to include:", c(levels(as.factor(hci.edu.c$treat)))),
                                   radioButtons("phase_filtering", "Filter phases?", c("Yes", "No"), selected = "No"),
-                                  checkboxGroupInput("phases", "Phases to include:", if(exists("gated.edu.f")){c(levels(as.factor(gated.edu.f$phase5)))} else{c("No phases")})
+                                  checkboxGroupInput("phases", "Phases to include:", if(exists("gated.edu.f")){c(levels(as.factor(gated.edu.f$phase5)))} else{c("No phases")}),
+                                  radioButtons("telo_filtering", "Late Telohase filter?", c("Yes", "No"), selected = "No")
                            ),
                            column(3,
                                   selectInput("tran_y", "Y-Axis Transformation", c("Linear" = "identity",
@@ -328,8 +329,7 @@ shinyApp(
                                   textInput("x_lab", "X-label"),
                                   textInput("y_lab", "Y-label"),
                                   selectInput("fill", "Default Violin Color", choices = colors(), selected = "deepskyblue4"),
-                                  uiOutput("group_color_inputs"),
-                                  radioButtons("telo_filtering", "Late Telohase filter?", c("Yes", "No"), selected = "No")),
+                                  uiOutput("group_color_inputs")),
                            column(2,
                                   numericInput("lower_y", "Lower Y Limit", value = NULL),
                                   numericInput("upper_y", "Upper Y Limit", value = NULL),
