@@ -9,6 +9,8 @@ library(forcats)
 
 source("plotting_functions.R")
 
+options(shiny.maxRequestSize = 8 * 1024^3)
+
 mycolorv <- viridis(n = 11)
 mycolorm <- magma(n = 11)
 mycolorr <- rev(RColorBrewer::brewer.pal(11, "Spectral"))
@@ -174,7 +176,38 @@ process_pipeline <- function(nuc_data, plate_data, channels, aliases, var_names,
     dat <- align(dat, "scenetreat", "int_dnacor", 0.2)
   }
 
-  dat
+  grouping_vars <- if (length(var_names) > 0 && all(var_names %in% names(dat))) {
+    var_names
+  } else {
+    "treat"
+  }
+
+  hci.edu.count <- dat |>
+    group_by(across(all_of(grouping_vars))) |>
+    summarise(count = n(), .groups = "drop")
+
+  min.count <- min(hci.edu.count$count)
+  hci.edu.ds <- dat |>
+    group_by(across(all_of(grouping_vars))) |>
+    sample_n(min.count) |>
+    ungroup()
+
+  hci.edu.ds2 <- if (min.count > 3999) {
+    dat |>
+      group_by(across(all_of(grouping_vars))) |>
+      sample_n(4000) |>
+      ungroup()
+  } else {
+    hci.edu.ds
+  }
+
+  list(
+    data = dat,
+    count = hci.edu.count,
+    min_count = min.count,
+    downsampled = hci.edu.ds,
+    downsampled_4k = hci.edu.ds2
+  )
 }
 
 ui <- fluidPage(
@@ -267,7 +300,7 @@ server <- function(input, output, session) {
     x[x != ""]
   })
 
-  processed <- eventReactive(input$run_pipeline, {
+  processed_bundle <- eventReactive(input$run_pipeline, {
     req(input$nuc_file, input$plate_file)
 
     nuc <- readr::read_csv(input$nuc_file$datapath, show_col_types = FALSE)
@@ -290,7 +323,7 @@ server <- function(input, output, session) {
   })
 
   gated <- reactive({
-    dat <- processed()
+    dat <- processed_bundle()$downsampled
     req("cor_int_dnacor" %in% names(dat), "cor_mean_educor" %in% names(dat))
 
     x1 <- input$x1
@@ -308,7 +341,7 @@ server <- function(input, output, session) {
   })
 
   output$processed_preview <- renderTable({
-    head(processed(), 10)
+    head(processed_bundle()$data, 10)
   })
 
   output$naming_settings <- renderPrint({
@@ -322,7 +355,7 @@ server <- function(input, output, session) {
   })
 
   output$gate_plot <- renderPlotly({
-    dat <- processed()
+    dat <- processed_bundle()$downsampled
     req("cor_int_dnacor" %in% names(dat), "cor_mean_educor" %in% names(dat))
 
     x3 <- input$x2 + (input$x2 - input$x1)
