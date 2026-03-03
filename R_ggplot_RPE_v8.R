@@ -258,15 +258,13 @@ server <- function(input, output, session) {
   })
 
   parsed_var_names <- reactive({
-    trimws(unlist(strsplit(input$var_names, ","))) |> (
-      function(x) x[x != ""]
-    )
+    x <- trimws(unlist(strsplit(input$var_names, ",")))
+    x[x != ""]
   })
 
   parsed_var_order <- reactive({
-    trimws(unlist(strsplit(input$var_order, ","))) |> (
-      function(x) x[x != ""]
-    )
+    x <- trimws(unlist(strsplit(input$var_order, ",")))
+    x[x != ""]
   })
 
   processed <- eventReactive(input$run_pipeline, {
