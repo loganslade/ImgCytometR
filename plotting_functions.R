@@ -178,6 +178,8 @@ initial_dataset <- if(!is.null(initial_dataset_name) && exists(initial_dataset_n
   tibble()
 }
 
+initial_factor_cols <- colnames(dplyr::select(initial_dataset, where(is.factor)))
+
 shinyApp(
   ui <- fluidPage(
     tabsetPanel(tabPanel("Plots",
@@ -191,8 +193,8 @@ shinyApp(
                                          varSelectInput("y_var", "Y_Axis Variable", dplyr::select(initial_dataset,where(is.numeric)),
                                                         selected = if("cor_mean_educor" %in% colnames(initial_dataset)) "cor_mean_educor" else NULL),
                                          radioButtons("faceting", "Facet Type", c("None", "Wrap", "Grid")),
-                                         selectInput("colFacet", "Column/Wrap Facet Var:", c("None", "treat", varNames, "phase", "phase2", "phase5")),
-                                         selectInput("colRow", "Row Facet Var:", c("None", "treat", varNames, "phase", "phase2", "phase5"))
+                                         selectInput("colFacet", "Column/Wrap Facet Var:", c("None", initial_factor_cols)),
+                                         selectInput("colRow", "Row Facet Var:", c("None", initial_factor_cols))
                          ),
                          
                                          column(3,
@@ -275,9 +277,16 @@ shinyApp(
       req(input$dataset)
       selected_dataset <- get(input$dataset)
       numeric_cols <- dplyr::select(selected_dataset, where(is.numeric))
+      factor_cols <- colnames(dplyr::select(selected_dataset, where(is.factor)))
       updateVarSelectInput(session, "x_var", data = numeric_cols)
       updateVarSelectInput(session, "y_var", data = numeric_cols)
       updateVarSelectInput(session, "fill_var", data = numeric_cols)
+      updateSelectInput(session, "colFacet",
+                        choices = c("None", factor_cols),
+                        selected = if((input$colFacet %||% "None") %in% c("None", factor_cols)) input$colFacet else "None")
+      updateSelectInput(session, "colRow",
+                        choices = c("None", factor_cols),
+                        selected = if((input$colRow %||% "None") %in% c("None", factor_cols)) input$colRow else "None")
       selected_filters <- input$filter_cols %||% character()
       updateSelectizeInput(session, "filter_cols",
                            choices = colnames(selected_dataset),
