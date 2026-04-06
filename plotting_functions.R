@@ -143,6 +143,8 @@ percents <- function(df, groups){
   return(loaded)
 }
 
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0 || all(is.na(x))) y else x
+
 
 shiny2D <- function(){
 dataset_choices <- local({
@@ -218,12 +220,12 @@ shinyApp(
                                 radioButtons("filtering", "Filter groups?", c("Yes", "No"), selected = "No"),
                                 checkboxGroupInput("levels", "Groups to include:", if("treat" %in% colnames(initial_dataset)) c(levels(as.factor(initial_dataset$treat))) else character(0)),
                                 radioButtons("phase_filtering", "Filter phases?", c("Yes", "No"), selected = "No"),
-                                checkboxGroupInput("phases", "Phases to include:", if(exists("gated.edu.f")){c(levels(as.factor(gated.edu.f$phase5)))} else{c("No phases")})
-                         ),
-                         column(3,
+                                checkboxGroupInput("phases", "Phases to include:", if(exists("gated.edu.f")){c(levels(as.factor(gated.edu.f$phase5)))} else{c("No phases")}),
                                 h4("Filtering"),
                                 selectizeInput("filter_cols", "Columns to filter", choices = NULL, multiple = TRUE),
-                                uiOutput("filter_ui"),
+                                uiOutput("filter_ui")
+                         ),
+                         column(3,
                                 selectInput("tran_x", "X-Axis Transformation", c("Linear" = "identity",
                                                                                  "Log10" = "log10",
                                                                                  "pseudolog" = "pseudo_log"),
