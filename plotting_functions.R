@@ -218,20 +218,12 @@ shinyApp(
                                 radioButtons("filtering", "Filter groups?", c("Yes", "No"), selected = "No"),
                                 checkboxGroupInput("levels", "Groups to include:", if("treat" %in% colnames(initial_dataset)) c(levels(as.factor(initial_dataset$treat))) else character(0)),
                                 radioButtons("phase_filtering", "Filter phases?", c("Yes", "No"), selected = "No"),
-                                checkboxGroupInput("phases", "Phases to include:", if(exists("gated.edu.f")){c(levels(as.factor(gated.edu.f$phase5)))} else{c("No phases")}),
-                                checkboxInput("use_custom_filter", "Use Custom Filter", value = FALSE),
-                                selectInput("custom_filter_var", "Custom Filter Variable", choices = colnames(initial_dataset)),
-                                selectInput("custom_filter_operator", "Custom Filter Operator", choices = c("==" = "eq",
-                                                                                                            "!=" = "neq",
-                                                                                                            ">" = "gt",
-                                                                                                            ">=" = "gte",
-                                                                                                            "<" = "lt",
-                                                                                                            "<=" = "lte",
-                                                                                                            "%in% (comma-separated values)" = "in",
-                                                                                                            "contains (text)" = "contains")),
-                                textInput("custom_filter_value", "Custom Filter Value", value = "")
+                                checkboxGroupInput("phases", "Phases to include:", if(exists("gated.edu.f")){c(levels(as.factor(gated.edu.f$phase5)))} else{c("No phases")})
                          ),
                          column(3,
+                                h4("Filtering"),
+                                selectizeInput("filter_cols", "Columns to filter", choices = NULL, multiple = TRUE),
+                                uiOutput("filter_ui"),
                                 selectInput("tran_x", "X-Axis Transformation", c("Linear" = "identity",
                                                                                  "Log10" = "log10",
                                                                                  "pseudolog" = "pseudo_log"),
@@ -284,68 +276,67 @@ shinyApp(
       updateVarSelectInput(session, "x_var", data = numeric_cols)
       updateVarSelectInput(session, "y_var", data = numeric_cols)
       updateVarSelectInput(session, "fill_var", data = numeric_cols)
-      updateSelectInput(session, "custom_filter_var",
-                        choices = colnames(selected_dataset),
-                        selected = if(length(colnames(selected_dataset)) > 0) colnames(selected_dataset)[1] else NULL)
+      selected_filters <- input$filter_cols %||% character()
+      updateSelectizeInput(session, "filter_cols",
+                           choices = colnames(selected_dataset),
+                           selected = intersect(selected_filters, colnames(selected_dataset)),
+                           server = TRUE)
       updateCheckboxGroupInput(session, "levels",
                                choices = if("treat" %in% colnames(selected_dataset)) c(levels(as.factor(selected_dataset$treat))) else character(0))
     }, ignoreNULL = FALSE)
 
-    custom_filtered_data <- reactive({
-      data <- get(input$dataset)
+    raw_data <- reactive({
+      req(input$dataset)
+      get(input$dataset)
+    })
+
+    output$filter_ui <- renderUI({
+      df <- raw_data()
+      req(df)
       
-      if(!isTRUE(input$use_custom_filter) ||
-         is.null(input$custom_filter_var) ||
-         input$custom_filter_var == "" ||
-         !input$custom_filter_var %in% colnames(data) ||
-         is.null(input$custom_filter_value) ||
-         input$custom_filter_value == "") {
-        return(data)
+      if (length(input$filter_cols %||% character()) == 0) {
+        return(helpText("Select one or more columns to add interactive filters."))
       }
       
-      filter_col <- data[[input$custom_filter_var]]
-      filter_value <- trimws(input$custom_filter_value)
-      
-      if(input$custom_filter_operator == "contains") {
-        return(data[grepl(filter_value, as.character(filter_col), fixed = TRUE), , drop = FALSE])
-      }
-      
-      if(input$custom_filter_operator == "in") {
-        split_values <- trimws(strsplit(filter_value, ",")[[1]])
-        if(is.numeric(filter_col)) {
-          split_values_num <- suppressWarnings(as.numeric(split_values))
-          split_values_num <- split_values_num[!is.na(split_values_num)]
-          return(data[filter_col %in% split_values_num, , drop = FALSE])
-        }
-        return(data[as.character(filter_col) %in% split_values, , drop = FALSE])
-      }
-      
-      if(is.numeric(filter_col)) {
-        numeric_value <- suppressWarnings(as.numeric(filter_value))
-        if(is.na(numeric_value)) {
-          return(data)
-        }
+      controls <- lapply(input$filter_cols, function(col) {
+        v <- df[[col]]
+        id <- paste0("flt_", col)
         
-        return(data[
-          if(input$custom_filter_operator == "eq") filter_col == numeric_value
-          else if(input$custom_filter_operator == "neq") filter_col != numeric_value
-          else if(input$custom_filter_operator == "gt") filter_col > numeric_value
-          else if(input$custom_filter_operator == "gte") filter_col >= numeric_value
-          else if(input$custom_filter_operator == "lt") filter_col < numeric_value
-          else filter_col <= numeric_value, , drop = FALSE
-        ])
+        if (is.numeric(v)) {
+          rng <- range(v, na.rm = TRUE)
+          sliderInput(id, paste("Range:", col), min = floor(rng[1]), max = ceiling(rng[2]), value = rng)
+        } else {
+          choices <- sort(unique(as.character(v)))
+          selectizeInput(id, paste("Values:", col), choices = choices, selected = choices, multiple = TRUE)
+        }
+      })
+      
+      do.call(tagList, controls)
+    })
+
+    filtered_data <- reactive({
+      df <- raw_data()
+      req(df)
+      
+      for (col in input$filter_cols %||% character()) {
+        id <- paste0("flt_", col)
+        filter_value <- input[[id]]
+        
+        if (is.null(filter_value)) next
+        
+        if (is.numeric(df[[col]])) {
+          df <- df %>% filter(.data[[col]] >= filter_value[1], .data[[col]] <= filter_value[2])
+        } else {
+          df <- df %>% filter(as.character(.data[[col]]) %in% as.character(filter_value))
+        }
       }
       
-      return(data[
-        if(input$custom_filter_operator == "eq") as.character(filter_col) == filter_value
-        else if(input$custom_filter_operator == "neq") as.character(filter_col) != filter_value
-        else as.character(filter_col) == filter_value, , drop = FALSE
-      ])
+      df
     })
 
     plot_data <- reactive({
       req(input$dataset)
-      custom_filtered_data() %>%
+      filtered_data() %>%
         {if(input$filtering == "Yes" && "treat" %in% colnames(.)) filter(.,treat %in% c(input$levels)) else .}  %>%
         {if(input$phase_filtering == "Yes" && "phase5" %in% colnames(.)) filter(.,phase5 %in% c(input$phases)) else .}
     })
