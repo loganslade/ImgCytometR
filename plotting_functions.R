@@ -178,7 +178,7 @@ initial_dataset <- if(!is.null(initial_dataset_name) && exists(initial_dataset_n
   tibble()
 }
 
-initial_factor_cols <- colnames(dplyr::select(initial_dataset, where(is.factor)))
+initial_factor_cols <- colnames(dplyr::select(initial_dataset, where(~is.factor(.) || is.character(.))))
 
 shinyApp(
   ui <- fluidPage(
@@ -277,7 +277,7 @@ shinyApp(
       req(input$dataset)
       selected_dataset <- get(input$dataset)
       numeric_cols <- dplyr::select(selected_dataset, where(is.numeric))
-      factor_cols <- colnames(dplyr::select(selected_dataset, where(is.factor)))
+      factor_cols <- colnames(dplyr::select(selected_dataset, where(~is.factor(.) || is.character(.))))
       updateVarSelectInput(session, "x_var", data = numeric_cols)
       updateVarSelectInput(session, "y_var", data = numeric_cols)
       updateVarSelectInput(session, "fill_var", data = numeric_cols)
