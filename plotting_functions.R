@@ -143,8 +143,43 @@ percents <- function(df, groups){
   return(loaded)
 }
 
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0 || all(is.na(x))) y else x
+
 
 shiny2D <- function(){
+dataset_choices <- local({
+  preset_choices <- c("Full" = "hci.edu.c",
+                      "Large Downsample" = "hci.edu.ds",
+                      "Small Downsample" = "hci.edu.ds2",
+                      "Gated" = "gated.edu.f")
+  
+  env_names <- ls(envir = .GlobalEnv)
+  data_frame_names <- env_names[sapply(env_names, function(obj_name) {
+    is.data.frame(get(obj_name, envir = .GlobalEnv))
+  })]
+  
+  preset_available <- preset_choices[preset_choices %in% data_frame_names]
+  additional_data_frames <- setdiff(data_frame_names, unname(preset_available))
+  
+  c(preset_available, stats::setNames(additional_data_frames, additional_data_frames))
+})
+
+initial_dataset_name <- if("hci.edu.c" %in% unname(dataset_choices)) {
+  "hci.edu.c"
+} else if(length(dataset_choices) > 0) {
+  unname(dataset_choices)[1]
+} else {
+  NULL
+}
+
+initial_dataset <- if(!is.null(initial_dataset_name) && exists(initial_dataset_name, envir = .GlobalEnv)) {
+  get(initial_dataset_name, envir = .GlobalEnv)
+} else {
+  tibble()
+}
+
+initial_factor_cols <- colnames(dplyr::select(initial_dataset, where(~is.factor(.) || is.character(.))))
+
 shinyApp(
   ui <- fluidPage(
     tabsetPanel(tabPanel("Plots",
@@ -152,35 +187,45 @@ shinyApp(
                                          plotOutput("plot", inline = TRUE))),
                          fluidRow(column(2,
                                          actionButton("graph_click", "Make Graph"),
-                                         selectInput("dataset", "Select Data Set", c( "Full" = "hci.edu.c",
-                                                                                      "Large Downsample" = "hci.edu.ds",
-                                                                                      "Small Downsample" = "hci.edu.ds2",
-                                                                                      "Gated" = "gated.edu.f"
-                                         )),
-                                         varSelectInput("x_var", "X_Axis Variable", dplyr::select(hci.edu.c,where(is.numeric)),
-                                                        selected = "cor_int_dnacor"),
-                                         varSelectInput("y_var", "Y_Axis Variable", dplyr::select(hci.edu.c,where(is.numeric)),
-                                                        selected = "cor_mean_educor"),
+                                         selectInput("dataset", "Select Data Set", choices = dataset_choices, selected = initial_dataset_name),
+                                         varSelectInput("x_var", "X_Axis Variable", dplyr::select(initial_dataset,where(is.numeric)),
+                                                        selected = if("cor_int_dnacor" %in% colnames(initial_dataset)) "cor_int_dnacor" else NULL),
+                                         varSelectInput("y_var", "Y_Axis Variable", dplyr::select(initial_dataset,where(is.numeric)),
+                                                        selected = if("cor_mean_educor" %in% colnames(initial_dataset)) "cor_mean_educor" else NULL),
                                          radioButtons("faceting", "Facet Type", c("None", "Wrap", "Grid")),
-                                         selectInput("colFacet", "Column/Wrap Facet Var:", c("None", "treat", varNames, "phase", "phase2", "phase5")),
-                                         selectInput("colRow", "Row Facet Var:", c("None", "treat", varNames, "phase", "phase2", "phase5"))
+                                         selectInput("colFacet", "Column/Wrap Facet Var:", c("None", initial_factor_cols)),
+                                         selectInput("colRow", "Row Facet Var:", c("None", initial_factor_cols))
                          ),
                          
-                         column(3,
+                                         column(3,
                                 sliderInput("height", "height", min = 100, max = 2000, value = 500),
                                 sliderInput("width", "width", min = 100, max = 2000, value = 1500),
                                 numericInput("res", "Scaling (click Make Graph after change)", value = 64),
+                                selectInput("point_color_mode", "Point Color Mode", c("Density" = "density",
+                                                                                      "Continuous Fill" = "continuous"), selected = "density"),
+                                varSelectInput("fill_var", "Point Fill Variable", dplyr::select(initial_dataset,where(is.numeric)),
+                                               selected = if("cor_int_dnacor" %in% colnames(initial_dataset)) "cor_int_dnacor" else NULL),
+                                numericInput("point_alpha", "Point Alpha", value = 0.5, min = 0, max = 1, step = 0.05),
                                 numericInput("dot_size", "Point Size", value = 0.3),
                                 numericInput("gradient_size", "Change density gradient", value = 0.01),
+                                selectInput("fill_low_color", "Fill Gradient Low Color", choices = colors(), selected = "white"),
+                                selectInput("fill_mid_color", "Fill Gradient Mid Color", choices = colors(), selected = "white"),
+                                selectInput("fill_high_color", "Fill Gradient High Color", choices = colors(), selected = "magenta"),
+                                numericInput("fill_midpoint", "Fill Gradient Midpoint", value = 0.6),
+                                numericInput("fill_lower", "Fill Gradient Lower Cutoff", value = 0.3),
+                                numericInput("fill_upper", "Fill Gradient Upper Cutoff", value = 1.1),
                                 numericInput("text_globe", "Global text size", value = 28),
                                 numericInput("text_axis", "Axis text size", value = 24),
                                 numericInput("text_leg", "Legend text size", value = 20),
                          ),
                          column(2,
                                 radioButtons("filtering", "Filter groups?", c("Yes", "No"), selected = "No"),
-                                checkboxGroupInput("levels", "Groups to include:", c(levels(as.factor(hci.edu.c$treat)))),
+                                checkboxGroupInput("levels", "Groups to include:", if("treat" %in% colnames(initial_dataset)) c(levels(as.factor(initial_dataset$treat))) else character(0)),
                                 radioButtons("phase_filtering", "Filter phases?", c("Yes", "No"), selected = "No"),
-                                checkboxGroupInput("phases", "Phases to include:", if(exists("gated.edu.f")){c(levels(as.factor(gated.edu.f$phase5)))} else{c("No phases")})
+                                checkboxGroupInput("phases", "Phases to include:", if(exists("gated.edu.f")){c(levels(as.factor(gated.edu.f$phase5)))} else{c("No phases")}),
+                                h4("Filtering"),
+                                selectizeInput("filter_cols", "Columns to filter", choices = NULL, multiple = TRUE),
+                                uiOutput("filter_ui")
                          ),
                          column(3,
                                 selectInput("tran_x", "X-Axis Transformation", c("Linear" = "identity",
@@ -199,7 +244,16 @@ shinyApp(
                                 selectInput("twocolor", "Select Color Map", c("Magma" = "mycolorm",
                                                                               "Rainbow" = "mycolorr",
                                                                               "Viridis" = "mycolorv"),
-                                            selected = "mycolorv")),
+                                            selected = "mycolorv"),
+                                selectInput("smooth_method", "Smoothing Method", c("None" = "none",
+                                                                                   "Loess" = "loess",
+                                                                                   "Linear Model" = "lm",
+                                                                                   "GAM" = "gam"), selected = "none"),
+                                selectInput("smooth_color", "Smoothing Color", choices = colors(), selected = "black"),
+                                numericInput("smooth_linewidth", "Smoothing Line Width", value = 0.5, min = 0, step = 0.1),
+                                numericInput("smooth_alpha", "Smoothing Alpha", value = 0.2, min = 0, max = 1, step = 0.05),
+                                checkboxInput("smooth_se", "Show Smoothing Confidence Interval", value = TRUE),
+                                numericInput("smooth_span", "Loess Span", value = 0.75, min = 0.01, max = 2, step = 0.01)),
                          column(2,
                                 numericInput("lower_x", "Lower X Limit", value = NULL),
                                 numericInput("upper_x", "Upper X Limit", value = NULL),
@@ -219,13 +273,140 @@ shinyApp(
   ,
   
   server <- function(input, output, session) {
+    observeEvent(input$dataset, {
+      req(input$dataset)
+      selected_dataset <- get(input$dataset)
+      numeric_cols <- dplyr::select(selected_dataset, where(is.numeric))
+      factor_cols <- colnames(dplyr::select(selected_dataset, where(~is.factor(.) || is.character(.))))
+      updateVarSelectInput(session, "x_var", data = numeric_cols)
+      updateVarSelectInput(session, "y_var", data = numeric_cols)
+      updateVarSelectInput(session, "fill_var", data = numeric_cols)
+      updateSelectInput(session, "colFacet",
+                        choices = c("None", factor_cols),
+                        selected = if((input$colFacet %||% "None") %in% c("None", factor_cols)) input$colFacet else "None")
+      updateSelectInput(session, "colRow",
+                        choices = c("None", factor_cols),
+                        selected = if((input$colRow %||% "None") %in% c("None", factor_cols)) input$colRow else "None")
+      selected_filters <- input$filter_cols %||% character()
+      updateSelectizeInput(session, "filter_cols",
+                           choices = colnames(selected_dataset),
+                           selected = intersect(selected_filters, colnames(selected_dataset)),
+                           server = TRUE)
+      updateCheckboxGroupInput(session, "levels",
+                               choices = if("treat" %in% colnames(selected_dataset)) c(levels(as.factor(selected_dataset$treat))) else character(0))
+    }, ignoreNULL = FALSE)
+
+    raw_data <- reactive({
+      req(input$dataset)
+      get(input$dataset)
+    })
+
+    output$filter_ui <- renderUI({
+      df <- raw_data()
+      req(df)
+      
+      if (length(input$filter_cols %||% character()) == 0) {
+        return(helpText("Select one or more columns to add interactive filters."))
+      }
+      
+      controls <- lapply(input$filter_cols, function(col) {
+        v <- df[[col]]
+        id <- paste0("flt_", col)
+        
+        if (is.numeric(v)) {
+          rng <- range(v, na.rm = TRUE)
+          sliderInput(id, paste("Range:", col), min = floor(rng[1]), max = ceiling(rng[2]), value = rng)
+        } else {
+          choices <- sort(unique(as.character(v)))
+          selectizeInput(id, paste("Values:", col), choices = choices, selected = choices, multiple = TRUE)
+        }
+      })
+      
+      do.call(tagList, controls)
+    })
+
+    filtered_data <- reactive({
+      df <- raw_data()
+      req(df)
+      
+      for (col in input$filter_cols %||% character()) {
+        id <- paste0("flt_", col)
+        filter_value <- input[[id]]
+        
+        if (is.null(filter_value)) next
+        
+        if (is.numeric(df[[col]])) {
+          df <- df %>% filter(.data[[col]] >= filter_value[1], .data[[col]] <= filter_value[2])
+        } else {
+          df <- df %>% filter(as.character(.data[[col]]) %in% as.character(filter_value))
+        }
+      }
+      
+      df
+    })
+
+    plot_data <- reactive({
+      req(input$dataset)
+      filtered_data() %>%
+        {if(input$filtering == "Yes" && "treat" %in% colnames(.)) filter(.,treat %in% c(input$levels)) else .}  %>%
+        {if(input$phase_filtering == "Yes" && "phase5" %in% colnames(.)) filter(.,phase5 %in% c(input$phases)) else .}
+    })
+
+    point_count <- reactive({
+      nrow(plot_data())
+    })
+
+    observe({
+      if(point_count() > 10000) {
+        updateSelectInput(session, "smooth_method",
+                          choices = c("None" = "none"),
+                          selected = "none")
+      } else {
+        updateSelectInput(session, "smooth_method",
+                          choices = c("None" = "none",
+                                      "Loess" = "loess",
+                                      "Linear Model" = "lm",
+                                      "GAM" = "gam"),
+                          selected = input$smooth_method)
+      }
+    })
+
+    output$code <- renderText({
+      if(point_count() > 10000) {
+        "Smoothing disabled when point count exceeds 10,000."
+      } else {
+        paste("Point count:", point_count())
+      }
+    })
+
     gg <- reactive(  
-      get(input$dataset) %>% 
-        {if(input$filtering == "Yes") filter(.,treat %in% c(input$levels)) else .}  %>%
-        {if(input$phase_filtering == "Yes") filter(.,phase5 %in% c(input$phases)) else .}  %>% 
+      plot_data() %>% 
         ggplot(aes(x=!!input$x_var, y=!!input$y_var))+
-        geom_pointdensity(size = input$dot_size, 
-                          adjust = input$gradient_size) +
+        {if(input$point_color_mode == "density")
+          geom_pointdensity(size = input$dot_size,
+                            alpha = input$point_alpha,
+                            adjust = input$gradient_size)
+          else
+            geom_point(aes(fill = !!input$fill_var),
+                       shape = 21,
+                       alpha = input$point_alpha,
+                       size = input$dot_size)} +
+        {if(input$point_color_mode == "density")
+          scale_color_gradientn(colours = get(input$twocolor))
+          else
+            scale_fill_gradient2(low = input$fill_low_color,
+                                 mid = input$fill_mid_color,
+                                 high = input$fill_high_color,
+                                 midpoint = input$fill_midpoint,
+                                 limits = c(input$fill_lower, input$fill_upper),
+                                 na.value = input$fill_high_color)}+
+        {if(input$smooth_method != "none" && point_count() <= 10000)
+          geom_smooth(color = input$smooth_color,
+                      se = input$smooth_se,
+                      linewidth = input$smooth_linewidth,
+                      alpha = input$smooth_alpha,
+                      method = input$smooth_method,
+                      span = if(input$smooth_method == "loess") input$smooth_span else NULL)}+
         scale_y_continuous(transform = if(input$tran_y == "pseudo_log"){scales::pseudo_log_trans(sigma = input$sigma_y)}
                            else{input$tran_y},
                            limits = c(input$lower_y, 
@@ -234,11 +415,11 @@ shinyApp(
                            else{input$tran_x},
                            limits = c(input$lower_x, 
                                       input$upper_x))+
-        scale_color_gradientn(colours = get(input$twocolor))+
         labs(title = input$title,
              x= input$x_lab,
              y=input$y_lab, 
-             colour = "Density")+
+             colour = if(input$point_color_mode == "density") "Density" else NULL,
+             fill = if(input$point_color_mode == "continuous") as.character(input$fill_var) else NULL)+
         theme_classic()+
         theme(text = element_text(size=input$text_globe),
               legend.title = element_text(size = input$text_leg),
@@ -746,4 +927,3 @@ shinyApp(
     }
   )
 }
-
