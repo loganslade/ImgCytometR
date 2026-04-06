@@ -145,6 +145,37 @@ percents <- function(df, groups){
 
 
 shiny2D <- function(){
+dataset_choices <- local({
+  preset_choices <- c("Full" = "hci.edu.c",
+                      "Large Downsample" = "hci.edu.ds",
+                      "Small Downsample" = "hci.edu.ds2",
+                      "Gated" = "gated.edu.f")
+  
+  env_names <- ls(envir = .GlobalEnv)
+  data_frame_names <- env_names[sapply(env_names, function(obj_name) {
+    is.data.frame(get(obj_name, envir = .GlobalEnv))
+  })]
+  
+  preset_available <- preset_choices[preset_choices %in% data_frame_names]
+  additional_data_frames <- setdiff(data_frame_names, unname(preset_available))
+  
+  c(preset_available, stats::setNames(additional_data_frames, additional_data_frames))
+})
+
+initial_dataset_name <- if("hci.edu.c" %in% unname(dataset_choices)) {
+  "hci.edu.c"
+} else if(length(dataset_choices) > 0) {
+  unname(dataset_choices)[1]
+} else {
+  NULL
+}
+
+initial_dataset <- if(!is.null(initial_dataset_name) && exists(initial_dataset_name, envir = .GlobalEnv)) {
+  get(initial_dataset_name, envir = .GlobalEnv)
+} else {
+  tibble()
+}
+
 shinyApp(
   ui <- fluidPage(
     tabsetPanel(tabPanel("Plots",
@@ -152,28 +183,24 @@ shinyApp(
                                          plotOutput("plot", inline = TRUE))),
                          fluidRow(column(2,
                                          actionButton("graph_click", "Make Graph"),
-                                         selectInput("dataset", "Select Data Set", c( "Full" = "hci.edu.c",
-                                                                                      "Large Downsample" = "hci.edu.ds",
-                                                                                      "Small Downsample" = "hci.edu.ds2",
-                                                                                      "Gated" = "gated.edu.f"
-                                         )),
-                                         varSelectInput("x_var", "X_Axis Variable", dplyr::select(hci.edu.c,where(is.numeric)),
-                                                        selected = "cor_int_dnacor"),
-                                         varSelectInput("y_var", "Y_Axis Variable", dplyr::select(hci.edu.c,where(is.numeric)),
-                                                        selected = "cor_mean_educor"),
+                                         selectInput("dataset", "Select Data Set", choices = dataset_choices, selected = initial_dataset_name),
+                                         varSelectInput("x_var", "X_Axis Variable", dplyr::select(initial_dataset,where(is.numeric)),
+                                                        selected = if("cor_int_dnacor" %in% colnames(initial_dataset)) "cor_int_dnacor" else NULL),
+                                         varSelectInput("y_var", "Y_Axis Variable", dplyr::select(initial_dataset,where(is.numeric)),
+                                                        selected = if("cor_mean_educor" %in% colnames(initial_dataset)) "cor_mean_educor" else NULL),
                                          radioButtons("faceting", "Facet Type", c("None", "Wrap", "Grid")),
                                          selectInput("colFacet", "Column/Wrap Facet Var:", c("None", "treat", varNames, "phase", "phase2", "phase5")),
                                          selectInput("colRow", "Row Facet Var:", c("None", "treat", varNames, "phase", "phase2", "phase5"))
                          ),
                          
-                         column(3,
+                                         column(3,
                                 sliderInput("height", "height", min = 100, max = 2000, value = 500),
                                 sliderInput("width", "width", min = 100, max = 2000, value = 1500),
                                 numericInput("res", "Scaling (click Make Graph after change)", value = 64),
                                 selectInput("point_color_mode", "Point Color Mode", c("Density" = "density",
                                                                                       "Continuous Fill" = "continuous"), selected = "density"),
-                                varSelectInput("fill_var", "Point Fill Variable", dplyr::select(hci.edu.c,where(is.numeric)),
-                                               selected = "cor_int_dnacor"),
+                                varSelectInput("fill_var", "Point Fill Variable", dplyr::select(initial_dataset,where(is.numeric)),
+                                               selected = if("cor_int_dnacor" %in% colnames(initial_dataset)) "cor_int_dnacor" else NULL),
                                 numericInput("point_alpha", "Point Alpha", value = 0.5, min = 0, max = 1, step = 0.05),
                                 numericInput("dot_size", "Point Size", value = 0.3),
                                 numericInput("gradient_size", "Change density gradient", value = 0.01),
@@ -189,7 +216,7 @@ shinyApp(
                          ),
                          column(2,
                                 radioButtons("filtering", "Filter groups?", c("Yes", "No"), selected = "No"),
-                                checkboxGroupInput("levels", "Groups to include:", c(levels(as.factor(hci.edu.c$treat)))),
+                                checkboxGroupInput("levels", "Groups to include:", if("treat" %in% colnames(initial_dataset)) c(levels(as.factor(initial_dataset$treat))) else character(0)),
                                 radioButtons("phase_filtering", "Filter phases?", c("Yes", "No"), selected = "No"),
                                 checkboxGroupInput("phases", "Phases to include:", if(exists("gated.edu.f")){c(levels(as.factor(gated.edu.f$phase5)))} else{c("No phases")})
                          ),
@@ -239,10 +266,22 @@ shinyApp(
   ,
   
   server <- function(input, output, session) {
+    observeEvent(input$dataset, {
+      req(input$dataset)
+      selected_dataset <- get(input$dataset)
+      numeric_cols <- dplyr::select(selected_dataset, where(is.numeric))
+      updateVarSelectInput(session, "x_var", data = numeric_cols)
+      updateVarSelectInput(session, "y_var", data = numeric_cols)
+      updateVarSelectInput(session, "fill_var", data = numeric_cols)
+      updateCheckboxGroupInput(session, "levels",
+                               choices = if("treat" %in% colnames(selected_dataset)) c(levels(as.factor(selected_dataset$treat))) else character(0))
+    }, ignoreNULL = FALSE)
+
     plot_data <- reactive({
+      req(input$dataset)
       get(input$dataset) %>%
-        {if(input$filtering == "Yes") filter(.,treat %in% c(input$levels)) else .}  %>%
-        {if(input$phase_filtering == "Yes") filter(.,phase5 %in% c(input$phases)) else .}
+        {if(input$filtering == "Yes" && "treat" %in% colnames(.)) filter(.,treat %in% c(input$levels)) else .}  %>%
+        {if(input$phase_filtering == "Yes" && "phase5" %in% colnames(.)) filter(.,phase5 %in% c(input$phases)) else .}
     })
 
     point_count <- reactive({
