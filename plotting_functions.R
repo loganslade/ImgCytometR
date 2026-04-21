@@ -451,7 +451,8 @@ shinyApp(
       gg <- reactive(  
         plot_data() %>%
           ggplot(aes(x=!!input$x_var, y=!!input$y_var, fill = !!input$x_var))+
-          geom_violin(linewidth = 1, scale = "width", alpha = input$vio_alpha, draw_quantiles = c(0.5))+
+          geom_violin(scale = "width", alpha = input$vio_alpha)+
+          geom_violin(linewidth = 1, scale = "width", draw_quantiles = c(0.5), fill = "transparent")+
           geom_quasirandom(data = point_data(), size = input$dot_size, alpha= input$dot_alpha)+
           {if(is.null(fill_scale())) scale_fill_manual(values = rep(input$fill, length(group_levels())), breaks = group_levels()) else fill_scale()}+
           scale_y_continuous(transform = if(input$tran_y == "pseudo_log"){scales::pseudo_log_trans(sigma = input$sigma_y)}
