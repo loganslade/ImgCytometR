@@ -928,3 +928,123 @@ shinyApp(
     }
   )
 }
+
+match_cells <- function(round1,
+                        round2,
+                        search_radius = 25,
+                        k_candidates = 20,
+                        bin_size = 1,
+                        match_radius = 8){
+  
+  
+  images <- intersect(unique(round1$image), unique(round2$image))
+  
+  results <- vector("list", length(images))
+  
+  for(ii in seq_along(images)){
+    
+    img <- images[ii]
+    
+    r1 <- filter(round1, image == img)
+    r2 <- filter(round2, image == img)
+    
+    r2$matched_cell_id <- NA
+    r2$translation_dx <- NA
+    r2$translation_dy <- NA
+    
+    if(nrow(r1) < 20 || nrow(r2) < 20){
+      results[[ii]] <- r2
+      next
+    }
+    
+    ## ---------- Candidate translation votes ----------
+    
+    nn <- get.knnx(
+      data = as.matrix(r2[,c("x","y")]),
+      query = as.matrix(r1[,c("x","y")]),
+      k = min(k_candidates, nrow(r2))
+    )
+    
+    votes <- vector("list", nrow(r1))
+    
+    for(i in seq_len(nrow(r1))){
+      
+      keep <- nn$nn.dist[i,] <= search_radius
+      
+      if(!any(keep)){
+        votes[[i]] <- NULL
+        next
+      }
+      
+      idx <- nn$nn.index[i, keep]
+      
+      votes[[i]] <- data.frame(
+        dx = r2$x[idx] - r1$x[i],
+        dy = r2$y[idx] - r1$y[i]
+      )
+    }
+    
+    votes <- bind_rows(votes)
+    
+    if(nrow(votes) == 0){
+      results[[ii]] <- r2
+      next
+    }
+    
+    ## ---------- Hough-style voting ----------
+    
+    votes$bx <- round(votes$dx / bin_size)
+    votes$by <- round(votes$dy / bin_size)
+    
+    histogram <- votes %>%
+      count(bx, by, sort = TRUE)
+    
+    peak <- histogram[1,]
+    
+    winning_votes <-
+      votes %>%
+      filter(
+        bx == peak$bx,
+        by == peak$by
+      )
+    
+    dx <- median(winning_votes$dx)
+    dy <- median(winning_votes$dy)
+    
+    ## ---------- Shift round 2 ----------
+    
+    shifted <- cbind(
+      r2$x - dx,
+      r2$y - dy
+    )
+    
+    ## ---------- Final nearest-neighbor ----------
+    
+    final <- get.knnx(
+      data = shifted,
+      query = as.matrix(r1[,c("x","y")]),
+      k = 1
+    )
+    
+    matches <-
+      data.frame(
+        r1 = seq_len(nrow(r1)),
+        r2 = final$nn.index[,1],
+        dist = final$nn.dist[,1]
+      ) %>%
+      filter(dist <= match_radius) %>%
+      arrange(dist) %>%
+      distinct(r2, .keep_all = TRUE)
+    
+    r2$matched_cell_id[matches$r2] <- r1$i_id[matches$r1]
+    
+    r2$translation_dx <- dx
+    r2$translation_dy <- dy
+    
+    results[[ii]] <- r2
+  }
+  
+  bind_rows(results)
+}
+
+
